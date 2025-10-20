@@ -1,6 +1,6 @@
 use std::f32::consts::PI;
 
-use bevy::{prelude::*, utils::hashbrown::HashMap};
+use bevy::{prelude::*, utils::hashbrown::HashMap,render::camera::ScalingMode};
 use bevy_ggrs::{AddRollbackCommandExtension, LocalInputs, LocalPlayers, PlayerInputs};
 use crate::{custom_models::{Ball, Collidable, GameEvent, GameSettings, Player}, Config};
 
@@ -151,6 +151,7 @@ pub fn spawn_ball(
         Transform::default(),
     )).add_rollback();
 }
+
 fn game_setup(
     mut commands: Commands,
 ) {
@@ -164,5 +165,5 @@ fn game_setup(
         })
     ));
 
-    game::levels::load_level("./levels/test.json", &mut commands, &Vec::new());
+    levels::load_level("./levels/test.json", &mut commands, &Vec::new());
 }

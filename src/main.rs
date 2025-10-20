@@ -1,12 +1,11 @@
-use core::f32;
-use std::f32::consts::PI;
 
-use bevy_asset_loader::loading_state::{LoadingState, LoadingStateAppExt};
+#![allow(clippy::complexity)]
+
 use bevy_matchbox::prelude::*;
-use bevy::{prelude::*, render::{camera::ScalingMode, settings::{Backends, WgpuSettings}, RenderPlugin}, utils::HashMap};
-use bevy_ggrs::*;
-use matchbox_socket::{WebRtcSocket, PeerId};
-use custom_models::{Ball, Collidable, GameEvent, GameSettings, Player};
+use bevy::{prelude::*, render::{camera::ScalingMode, settings::{Backends, WgpuSettings}, RenderPlugin}};
+use bevy_ggrs::prelude::*;
+use matchbox_socket::PeerId;
+use custom_models::{GameEvent, GameSettings, Player};
 
 mod collision;
 mod custom_models;
@@ -23,6 +22,8 @@ use game::{
     spawn_ball,
     handle_game_events
 };
+
+use crate::menu::main::button_system;
 
 #[derive(Default, States, Debug, Clone, Eq, PartialEq, Hash)]
 pub enum AppState {
@@ -60,10 +61,14 @@ fn main() {
         .rollback_component_with_clone::<Transform>()
         .rollback_resource_with_copy::<GameSettings>()
         .add_event::<GameEvent>()
+        .add_systems(Startup, setup)
+        .add_systems(Update, button_system)
         .add_systems(Update, wait_for_players.run_if(in_state(AppState::Lobby)))
         .add_systems(Update, line_renderer::render_lines.run_if(in_state(AppState::Game)))
         .add_systems(ReadInputs, game::read_local_inputs)
         .add_systems(GgrsSchedule, (move_player, move_ball, handle_game_events).chain())
+        .add_systems(OnEnter(AppState::Menu), menu::main::on_enter)
+        .add_systems(Update, menu::main::handle_clicks.run_if(in_state(AppState::Menu)))
         .run();
 }
 
@@ -134,7 +139,7 @@ fn wait_for_players(mut commands: Commands, mut socket: ResMut<MatchboxSocket>) 
     info!("All peers have joined, going in-game");
 
     // create a GGRS P2P session
-    let mut session_builder = ggrs::SessionBuilder::<Config>::new()
+    let mut session_builder = SessionBuilder::<Config>::new()
         .with_num_players(num_players)
         .with_input_delay(2);
 
@@ -156,3 +161,19 @@ fn wait_for_players(mut commands: Commands, mut socket: ResMut<MatchboxSocket>) 
     commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
 }
 
+fn setup(
+    mut commands: Commands,
+) {
+    commands.spawn((
+        Camera2d,
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: ScalingMode::FixedVertical {
+                viewport_height: 20.,
+            },
+            ..OrthographicProjection::default_2d()
+        })
+    ));
+
+    //TODO: Load level on game_startup
+    //levels::load_level("./levels/test.json", &mut commands, &Vec::new());
+}

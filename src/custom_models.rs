@@ -23,7 +23,6 @@ pub struct Ball {
 pub struct GameSettings {
     pub max_score: u16,
     pub seed: u64,
-    pub rng: rand::SeedableRng
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug)]

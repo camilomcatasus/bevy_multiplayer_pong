@@ -31,7 +31,7 @@ pub struct Collidable {
     pub collision_action: CollisionAction,
 }
 
-#[derive(Event)]
+#[derive(Message)]
 pub enum GameEvent {
     BallOutOfBounds(Option<Entity>),
 }
@@ -114,7 +114,7 @@ impl Ball {
         time_diff: f32,
         commands: &mut Commands,
         ball_entity: Entity,
-        event_writer: &mut EventWriter<GameEvent>,
+        event_writer: &mut MessageWriter<GameEvent>,
     ) {
         match collidable.collision_action {
             CollisionAction::Bounce => {
@@ -124,8 +124,8 @@ impl Ball {
                 transform.translation += self.direction * self.speed * time_diff;
             },
             CollisionAction::Remove => {
-                if let Some(mut ball_commands) = commands.get_entity(ball_entity) {
-                    event_writer.send(GameEvent::BallOutOfBounds(self.last_hit));
+                if let Ok(mut ball_commands) = commands.get_entity(ball_entity) {
+                    event_writer.write(GameEvent::BallOutOfBounds(self.last_hit));
                     ball_commands.despawn();
                 }
             }

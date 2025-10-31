@@ -1,4 +1,5 @@
-use bevy::{color::palettes::css::WHITE, prelude::*};
+use bevy::{color::palettes::css::WHITE, ecs::relationship::RelatedSpawnerCommands, prelude::*};
+mod join;
 
 use crate::constants::{self, HOVERED_BUTTON, PRIMARY_BUTTON, DARK_GREEN};
 pub fn on_enter(mut commands: Commands) {
@@ -27,21 +28,17 @@ pub fn handle_clicks(
         (&MainButtonType, &Interaction), 
         (Changed<Interaction>, With<Button>)
     >,
-    commands: Commands,
-    mut exit: EventWriter<AppExit>) {
+    _commands: Commands,
+    mut exit: MessageWriter<AppExit>) {
     for (button_type, interaction) in &query {
         match (button_type, interaction) {
             (MainButtonType::Create, Interaction::Pressed) => (),
             (MainButtonType::Join, Interaction::Pressed) => (),
             (MainButtonType::Quick, Interaction::Pressed) => (),
-            (MainButtonType::Quit, Interaction::Pressed) => {exit.send_default();},
+            (MainButtonType::Quit, Interaction::Pressed) => {exit.write_default();},
             (_, _) => ()
         }
     }
-}
-
-fn handle_quick_join() {
-
 }
 
 pub fn button_system(
@@ -80,8 +77,8 @@ pub enum MainButtonType {
     Quit
 }
 
-fn spawn_button(cb: &mut ChildBuilder, text: &str, button_type: impl Component) {
-    cb.spawn((
+fn spawn_button(spawner: &mut RelatedSpawnerCommands<ChildOf>, text: &str, button_type: impl Component) {
+    spawner.spawn((
         Button,
         Node {
             display: Display::Flex,
@@ -99,8 +96,4 @@ fn spawn_button(cb: &mut ChildBuilder, text: &str, button_type: impl Component) 
         Text(text.to_string()),
         TextColor(WHITE.into())
     ));
-}
-
-pub fn on_exit(query: Query<Entity, With<MainUI>>) {
-
 }

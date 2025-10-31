@@ -1,8 +1,13 @@
 use std::f32::consts::PI;
 
-use bevy::{prelude::*, utils::hashbrown::HashMap,render::camera::ScalingMode};
-use bevy_ggrs::{AddRollbackCommandExtension, LocalInputs, LocalPlayers, PlayerInputs};
-use crate::{custom_models::{Ball, Collidable, GameEvent, GameSettings, Player}, Config};
+use bevy::prelude::*;
+use lightyear::prelude::Tick;
+use crate::{
+    custom_models::{
+        Ball, Collidable, GameEvent, GameSettings, Player
+    }, 
+    protocol::{Animation, Direction, Inputs, PlayerState}
+};
 
 pub const INPUT_UP: u8 = 1 << 0;
 pub const INPUT_DOWN: u8 = 1 << 1;
@@ -11,51 +16,31 @@ pub const INPUT_ATTACK: u8 = 1 << 3;
 
 pub mod levels;
 
-pub fn read_local_inputs(
-    mut commands: Commands,
-    keys: Res<ButtonInput<KeyCode>>,
-    local_players: Res<LocalPlayers>
+const PLAYER_SPEED: f64 = 0.02f64;
+const INPUT_BUFFERING_TIME: u16 = 20u16;
+
+pub fn handle_player_input(
+    mut player_state: Mut<PlayerState>,
+    input: &Inputs,
+    tick: Tick
 ) {
-    let mut local_inputs = HashMap::new();
-    for handle in  &local_players.0 {
-        let mut input = 0u8;
-
-        if keys.any_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
-            input |= INPUT_UP;
-        }
-
-        if keys.any_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
-            input |= INPUT_DOWN;
-        }
-
-        if keys.any_pressed([KeyCode::Space, KeyCode::Enter]) {
-            input |= INPUT_SPECIAL;
-        }
-
-        local_inputs.insert(*handle, input);
+    match input.direction {
+        Direction::Up => player_state.position += PLAYER_SPEED,
+        Direction::Down => player_state.position -= PLAYER_SPEED,
     }
 
-    commands.insert_resource(LocalInputs::<Config>(local_inputs));
-}
-
-pub fn move_player(
-    mut players: Query<(&mut Transform, &Player)>,
-    inputs: Res<PlayerInputs<Config>>,
-    time: Res<Time>,
-) {
-    for (mut transform, player) in &mut players {
-        let mut scalar = 0f32;
-        let (input, _) = inputs[player.handle];
-
-        if input & INPUT_UP != 0 {
-            scalar = 1f32;
+    if let Some(special) = &input.special {
+        if let Some(last_anim) = player_state.anim_buffer.last() {
+            if (last_anim.origin_tick - tick).unsigned_abs() < 
+                last_anim.anim_type.get_length_tick().to_i16().unsigned_abs().saturating_sub(INPUT_BUFFERING_TIME) {
+            }
         }
-        if input & INPUT_DOWN != 0 {
-            scalar = -1f32;
+        else {
+            player_state.anim_buffer.push(Animation {
+                anim_type: special.clone(),
+                origin_tick: tick
+            })
         }
-
-        let move_delta = transform.up() * scalar * player.speed * time.delta_secs();
-        transform.translation += move_delta;
     }
 }
 
@@ -64,7 +49,7 @@ pub fn move_ball(
     colliders: Query<(&Collidable, Entity)>,
     mut balls: Query<(&mut Transform, &mut Ball, &Sprite, Entity), Without<Player>>,
     mut commands: Commands,
-    mut event_writer: EventWriter<GameEvent>
+    mut event_writer: MessageWriter<GameEvent>
 ) {
     for (mut transform, mut ball, sprite, entity) in &mut balls {
         let sprite_rect = sprite.custom_size.unwrap();
@@ -105,7 +90,7 @@ pub fn move_ball(
 }
 
 pub fn handle_game_events(
-    mut event_reader: EventReader<GameEvent>,
+    mut event_reader: MessageReader<GameEvent>,
     mut players: Query<&mut Player>,
     mut commands: Commands,
     game_settings: Res<GameSettings>,
@@ -148,8 +133,8 @@ pub fn spawn_ball(
             custom_size: Some(Vec2::new(0.25, 0.25)),
             ..default()
         },
-        Transform::default(),
-    )).add_rollback();
+        Transform::default()
+    ));
 }
 
 fn game_setup(
@@ -158,7 +143,7 @@ fn game_setup(
     commands.spawn((
         Camera2d,
         Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
+            scaling_mode: bevy::camera::ScalingMode::FixedVertical {
                 viewport_height: 20.,
             },
             ..OrthographicProjection::default_2d()

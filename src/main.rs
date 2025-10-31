@@ -1,11 +1,5 @@
-
-#![allow(clippy::complexity)]
-
-use bevy_matchbox::prelude::*;
-use bevy::{prelude::*, render::{camera::ScalingMode, settings::{Backends, WgpuSettings}, RenderPlugin}};
-use bevy_ggrs::prelude::*;
-use matchbox_socket::PeerId;
-use custom_models::{GameEvent, GameSettings, Player};
+use bevy::{prelude::*, render::{settings::{Backends, WgpuSettings}, RenderPlugin}};
+use custom_models::{GameEvent, Player};
 
 mod collision;
 mod custom_models;
@@ -13,15 +7,16 @@ mod line_renderer;
 mod game;
 mod menu;
 mod constants;
+mod protocol;
+mod shared;
+mod client;
+mod bundle_fn;
+mod observe;
+mod ui;
+mod transient;
 
 
-use game::{
-    read_local_inputs,
-    move_ball,
-    move_player,
-    spawn_ball,
-    handle_game_events
-};
+use game::spawn_ball;
 
 use crate::menu::main::button_system;
 
@@ -29,47 +24,44 @@ use crate::menu::main::button_system;
 pub enum AppState {
     #[default]
     Menu,
+    Waiting,
     Lobby,
     Game
 }
 
-pub type Config = bevy_ggrs::GgrsConfig<u8, PeerId>;
 fn main() {
-        let mut wgpu_settings = WgpuSettings::default();
-        wgpu_settings.backends = Some(Backends::VULKAN);
-        App::new()
+    let wgpu_settings = WgpuSettings {
+        backends: Some(Backends::VULKAN),
+        ..Default::default()
+    };
+    App::new()
 
-        .add_plugins((
-            DefaultPlugins.set(
-                WindowPlugin {
-                    primary_window: Some(Window {
-                    // fill the entire browser window
-                    fit_canvas_to_parent: true,
-                    // don't hijack keyboard shortcuts like F5, F6, F12, Ctrl+R etc.
-                    prevent_default_event_handling: false,
-                    ..default()
-                }),
+    .add_plugins((
+        DefaultPlugins.set(
+            WindowPlugin {
+                primary_window: Some(Window {
+                // fill the entire browser window
+                fit_canvas_to_parent: true,
+                // don't hijack keyboard shortcuts like F5, F6, F12, Ctrl+R etc.
+                prevent_default_event_handling: false,
                 ..default()
-            }).set(
-                RenderPlugin {
-                    render_creation: wgpu_settings.into(),
-                    ..default()
             }),
-            GgrsPlugin::<Config>::default()
-        ))
-        .init_state::<AppState>()
-        .rollback_component_with_clone::<Transform>()
-        .rollback_resource_with_copy::<GameSettings>()
-        .add_event::<GameEvent>()
-        .add_systems(Startup, setup)
-        .add_systems(Update, button_system)
-        .add_systems(Update, wait_for_players.run_if(in_state(AppState::Lobby)))
-        .add_systems(Update, line_renderer::render_lines.run_if(in_state(AppState::Game)))
-        .add_systems(ReadInputs, game::read_local_inputs)
-        .add_systems(GgrsSchedule, (move_player, move_ball, handle_game_events).chain())
-        .add_systems(OnEnter(AppState::Menu), menu::main::on_enter)
-        .add_systems(Update, menu::main::handle_clicks.run_if(in_state(AppState::Menu)))
-        .run();
+            ..default()
+        }).set(
+            RenderPlugin {
+                render_creation: wgpu_settings.into(),
+                ..default()
+        }),
+    ))
+    .init_state::<AppState>()
+    .add_message::<GameEvent>()
+    .add_systems(Startup, setup)
+    .add_systems(Update, button_system)
+    .add_systems(Update, wait_for_players.run_if(in_state(AppState::Lobby)))
+    .add_systems(Update, line_renderer::render_lines.run_if(in_state(AppState::Game)))
+    .add_systems(OnEnter(AppState::Menu), menu::main::on_enter)
+    .add_systems(Update, menu::main::handle_clicks.run_if(in_state(AppState::Menu)))
+    .run();
 }
 
 
@@ -95,8 +87,7 @@ fn spawn_player(mut commands: Commands) {
                 ..default()
             },
         transform.clone().with_translation(LEFT * 2.)
-    ))
-    .add_rollback();
+    ));
 
     commands.spawn((
         Player { 
@@ -110,55 +101,13 @@ fn spawn_player(mut commands: Commands) {
             ..default()
         },
         transform.clone().with_translation(RIGHT * 2.)
-    ))
-    .add_rollback();
+    ));
 
     spawn_ball(&mut commands);
 }
 
-fn start_matchbox_socket(mut commands: Commands) {
-    let room_url = "ws://127.0.0.1:3536/extreme_bevy?next=2";
-    info!("connecting to matchbox server: {room_url}");
-    commands.insert_resource(MatchboxSocket::new_unreliable(room_url));
-}
+fn wait_for_players() {
 
-fn wait_for_players(mut commands: Commands, mut socket: ResMut<MatchboxSocket>) {
-    if socket.get_channel(0).is_err() {
-        return; // we've already started
-    }
-
-    // Check for new connections
-    socket.update_peers();
-    let players = socket.players();
-
-    let num_players = 2;
-    if players.len() < num_players {
-        return; // wait for more players
-    }
-
-    info!("All peers have joined, going in-game");
-
-    // create a GGRS P2P session
-    let mut session_builder = SessionBuilder::<Config>::new()
-        .with_num_players(num_players)
-        .with_input_delay(2);
-
-    for (i, player) in players.into_iter().enumerate() {
-        session_builder = session_builder
-            .add_player(player, i)
-            .expect("failed to add player");
-    }
-
-
-    // move the channel out of the socket (required because GGRS takes ownership of it)
-    let channel = socket.take_channel(0).unwrap();
-
-    // start the GGRS session
-    let ggrs_session = session_builder
-        .start_p2p_session(channel)
-        .expect("failed to start session");
-
-    commands.insert_resource(bevy_ggrs::Session::P2P(ggrs_session));
 }
 
 fn setup(
@@ -167,7 +116,7 @@ fn setup(
     commands.spawn((
         Camera2d,
         Projection::Orthographic(OrthographicProjection {
-            scaling_mode: ScalingMode::FixedVertical {
+            scaling_mode: bevy::camera::ScalingMode:: FixedVertical { 
                 viewport_height: 20.,
             },
             ..OrthographicProjection::default_2d()

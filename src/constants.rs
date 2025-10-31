@@ -36,3 +36,8 @@ pub const HOVERED_BUTTON: Srgba = FOREST_GREEN;
 pub const HOVERED_TEXT: Srgba = BEIGE;
 pub const PRIMARY_BUTTON: Srgba = PRIMARY_GREEN;
 pub const PRIMARY_TEXT: Srgba = WHITE;
+
+pub const MENU_BUTTON_WIDTH: Val = Val::Px(200.0);
+pub const MENU_BUTTON_HEIGHT: Val = Val::Px(40.0);
+
+pub static BROKER_URL: &str = "localhost:3003";

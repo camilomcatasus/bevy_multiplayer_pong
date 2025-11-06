@@ -1,0 +1,27 @@
+public_port = 3037
+private_port = 3038
+max_games = 3 
+public_games = 2
+max_game_length_s = 300
+timeout_s = 120
+expire_s = 300
+server_path = "./target/debug/server.exe"
+
+allowed_ports = [
+  3039,
+  3040,
+  3041,
+  3042,
+  3043,
+  3044,
+  3045,
+  3046,
+  3047,
+  3048,
+  3049,
+  3050,
+  3051,
+  3052,
+  3053,
+  3054
+]

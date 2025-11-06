@@ -1,0 +1,23 @@
+[package]
+name = "server"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bevy = {version = "0.17.2", default-features = false, features = [
+  "default_no_std",
+  "debug",
+  "async_executor",
+  "multi_threaded"
+]}
+clap = { version = "4.5.51", features = ["derive"] }
+lightyear = "0.25.3"
+reqwest = { version = "0.12.24", features = ["json", "blocking"]}
+common = { path = "../common", features = ["bevy"]}
+serde = { version = "1.0.228", features = ["derive"] }
+http-types = "2.12.0"
+smol = "2.0.2"
+anyhow = "1.0.100"
+async-h1 = "2.3.4"
+async-native-tls = "0.5.0"
+log = "0.4.28"

@@ -1,7 +1,8 @@
 use std::{net::{Ipv4Addr, SocketAddr}, sync::Arc, time::Duration};
 
 use bevy::{color::palettes::css::WHITE, input_focus::InputFocus, prelude::*, state::commands, tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, IoTaskPool, Task}};
-use common::shared::ConnectionResponse;
+use common::shared::{ConnectionResponse, fetch::fetch};
+use http_types::{Method, Request, Url};
 use lightyear::{netcode::{ConnectToken, NetcodeClient}, prelude::{client::NetcodeConfig, *}};
 use serde::{Deserialize, Serialize};
 
@@ -84,7 +85,6 @@ struct ConnectionTask(Task<Option<ConnectionResponse>>);
 
 fn main_screen_handler(
     text_boxes: Query<(&TextInput, &Text)>,
-    mut connection_task: ResMut<ConnectionTask>,
     mut main_screen_events: MessageReader<MainScreenEvent>,
     mut commands: Commands,
 ) {
@@ -103,15 +103,23 @@ fn main_screen_handler(
             }
         };
         let tasks = IoTaskPool::get();
+        let url = Url::parse(&url).expect("Could not parse url");
+        let connect_request = Request::new(Method::Get, url);
         let task_handle = tasks.spawn(async move {
-            let Ok(res) = reqwest::get(url).await else {
-                return None;
-            };
 
-            res.json().await.ok()
+            match fetch(connect_request).await {
+                Ok(mut res) => {
+                    log::info!("Broker Response {res:?}");
+                    res.body_json().await.ok()
+                },
+                Err(err) => {
+                    log::error!("Broker Response Error: {err:?}");
+                    None
+                },
+            }
         });
 
-        connection_task.0 = task_handle;
+        commands.insert_resource(ConnectionTask(task_handle));
         commands.set_state(AppState::Waiting);
     }
 }
@@ -156,10 +164,17 @@ fn enter_waiting_screen(mut commands: Commands) {
     ));
 
     commands.insert_resource(LoadingTimer(Timer::new(Duration::from_secs(1), TimerMode::Repeating)));
+    commands.insert_resource(WaitingState::ConnectToken);
 }
 
 #[derive(Message, Clone)]
 struct WaitingMessage(Option<&'static str>);
+
+#[derive(Resource)]
+enum WaitingState {
+    ConnectToken,
+    Connecting,
+}
 
 fn waiting_text_anim(
     mut text_query: Query<&mut Text, With<LoadingText>>, 
@@ -185,35 +200,13 @@ fn waiting_text_anim(
 fn waiting_handler(
     mut commands: Commands, 
     mut messages: MessageReader<WaitingMessage>,
-    mut connection_task: ResMut<ConnectionTask>,
+    connection_task: ResMut<ConnectionTask>,
+    waiting_state: ResMut<WaitingState>,
 ) {
 
-    if let Some(connection_response) = block_on(future::poll_once(&mut connection_task.0)) {
-        match connection_response {
-            Some(connection_data) => {
-
-                let Ok(connection_token) = ConnectToken::try_from_bytes(&connection_data.connect_token) else {
-                    return;
-                };
-                let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
-                let auth = Authentication::Token(connection_token);
-                commands.spawn((
-                    Client::default(),
-                    LocalAddr(client_addr),
-                    PeerAddr(connection_data.server_addr),
-                    Link::new(None),
-                    ReplicationReceiver::default(),
-                    NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
-                    UdpIo::default(),
-                ));
-            }
-            None => {
-                commands.spawn(crate::ui::comps::error_popup("Could not connect to server".into()));
-                commands.set_state(AppState::Menu);
-            }
-        }
-
-        return;
+    match *waiting_state {
+        WaitingState::ConnectToken => connect_token_wait(&mut commands, connection_task, waiting_state),
+        WaitingState::Connecting => (),
     }
 
     for message in messages.read() {
@@ -229,6 +222,75 @@ fn waiting_handler(
     }
 }
 
+fn connect_token_wait(
+    commands: &mut Commands,
+    mut connection_task: ResMut<ConnectionTask>,
+    mut waiting_state: ResMut<WaitingState>,
+) {
+    if let Some(connection_response) = block_on(future::poll_once(&mut connection_task.0)) {
+        match connection_response {
+            Some(connection_data) => {
+                info!("Got connection response: {connection_data:?}");
+                let Ok(connection_token) = ConnectToken::try_from_bytes(&connection_data.connect_token) else {
+
+                    commands.spawn(crate::ui::comps::error_popup("Server connect token invalid".into()));
+                    commands.set_state(AppState::Menu);
+                    return;
+                };
+                let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+                let auth = Authentication::Token(connection_token);
+                let client = commands.spawn((
+                    Client::default(),
+                    LocalAddr(client_addr),
+                    PeerAddr(connection_data.server_addr),
+                    Link::new(None),
+                    ReplicationReceiver::default(),
+                    NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
+                    UdpIo::default(),
+                )).id();
+
+                commands.trigger(Connect { entity: client});
+
+                *waiting_state = WaitingState::Connecting;
+            }
+            None => {
+                commands.spawn(crate::ui::comps::error_popup("Could not connect to server".into()));
+                commands.set_state(AppState::Menu);
+            }
+        }
+    }
+}
+
+pub(crate) fn handle_connected(
+    trigger: On<Add, Connected>,
+    query: Query<&RemoteId, With<Client>>,
+    mut commands: Commands,
+) {
+    let Ok(client_id) = query.get(trigger.entity) else {
+        info!("What");
+        return;
+    };
+    let client_id = client_id.0;
+    /*let entity = commands
+        .spawn((
+            PlayerBundle::new(client_id, Vec2::ZERO),
+            // we replicate the Player entity to all clients that are connected to this server
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    */
+    info!(
+        "Connected",
+    );
+
+    commands.set_state(AppState::Lobby);
+}
+
+fn exit_waiting_screen(mut commands: Commands) {
+    commands.remove_resource::<ConnectionTask>();
+    commands.remove_resource::<WaitingState>();
+    commands.remove_resource::<LoadingTimer>();
+}
 
 #[derive(Message, Clone, Serialize, Deserialize)]
 pub enum MainScreenEvent {
@@ -248,7 +310,9 @@ impl Plugin for ScreenSystem {
             .add_systems(OnEnter(AppState::Menu), enter_main_screen)
             .add_systems(Update, main_screen_handler.run_if(in_state(AppState::Menu)))
             .add_systems(OnEnter(AppState::Waiting), enter_waiting_screen)
-            .add_systems(PreUpdate, (waiting_text_anim, waiting_handler).run_if(in_state(AppState::Waiting)))
+            .add_observer(handle_connected)
+            .add_systems(Update, (waiting_text_anim, waiting_handler).run_if(in_state(AppState::Waiting)))
+            .add_systems(OnExit(AppState::Waiting), exit_waiting_screen)
             ;
     }
 }

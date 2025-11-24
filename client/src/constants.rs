@@ -54,5 +54,5 @@ pub fn full_flex() -> Node {
     }
 }
 
-pub static BROKER_URL: &str = "localhost:3003";
+pub static BROKER_URL: &str = "http://127.0.0.1:3037";
 pub const ERROR_Z_INDEX: ZIndex = ZIndex(1000);

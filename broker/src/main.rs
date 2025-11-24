@@ -1,12 +1,12 @@
 use std::{collections::{HashMap, HashSet}, net::SocketAddr, str::FromStr, sync::Arc, time::Instant};
+use axum::Json;
 use broker::AppState;
 use lightyear::netcode::ConnectToken;
 use serde::{Serialize, Deserialize};
 use tokio::{process::Child, sync::Mutex};
 use lazy_static::lazy_static;
 use common::shared::{
-    ShortCode,
-    LobbyType,
+    ConnectionResponse, LobbyType, ShortCode, PROTOCOL_ID
 };
 use tracing_subscriber::EnvFilter;
 use crate::error::Error;
@@ -52,6 +52,7 @@ pub struct LobbyMaps {
 #[derive(Deserialize, Debug)]
 pub struct LobbyInfo {
     pub address: String,
+    pub port: u16,
     pub player_count: u8,
     pub player_index: u64,
     pub private_key: [u8; 32],
@@ -63,13 +64,12 @@ pub struct LobbyInfo {
     pub lobby_type: LobbyType,
 }
 
-const PROTOCOL_ID: u64 = 15234_u64;
 
 impl LobbyInfo {
     pub fn token(&mut self) -> Result<ConnectToken, Error> {
         self.player_index += 1;
         Ok(ConnectToken::build(
-            SocketAddr::from_str(&self.address).map_err(|_| Error::ParseError)?,
+            SocketAddr::from_str(&self.address)?,
             PROTOCOL_ID,
             self.player_index,
             self.private_key
@@ -77,6 +77,15 @@ impl LobbyInfo {
             .timeout_seconds(CONFIG.timeout_s)
             .expire_seconds(CONFIG.expire_s)
             .generate()?)
+    }
+
+    pub fn connection_response(&mut self) -> Result<Json<ConnectionResponse>, Error> {
+        let connection_response = ConnectionResponse {
+            connect_token: self.token()?.try_into_bytes()?,
+            server_addr: SocketAddr::from_str(&self.address)?,
+        };
+
+        Ok(Json(connection_response))
     }
 }
 
@@ -110,7 +119,8 @@ async fn main() {
     tokio::join!(
         axum::serve(public_listener, public::create_router(&state)),
         axum::serve(private_listener, private::create_router(&state)),
-        broker::lobby_validation(state.clone())
+        broker::lobby_validation(state.clone()),
+        broker::public_lobby_handler(state.clone()),
     );
 }
 

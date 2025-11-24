@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use bevy::{input_focus::{InputDispatchPlugin, InputFocusSystems}, log::LogPlugin, prelude::*, render::{settings::{Backends, WgpuSettings}, RenderPlugin}};
 use custom_models::{GameEvent, Player};
 
@@ -14,6 +16,7 @@ mod transient;
 
 use common::protocol;
 use game::spawn_ball;
+use lightyear::prelude::client::ClientPlugins;
 use ui::screens::ScreenSystem;
 
 use crate::transient::TransientPlugin;
@@ -53,6 +56,7 @@ fn main() {
         ScreenSystem,
         InputDispatchPlugin,
         TransientPlugin,
+        ClientPlugins { tick_duration: Duration::from_millis(20) }
     ))
     .init_state::<AppState>()
     .add_message::<GameEvent>()
@@ -121,6 +125,4 @@ fn setup(
         })
     ));
 
-    //TODO: Load level on game_startup
-    //levels::load_level("./levels/test.json", &mut commands, &Vec::new());
 }

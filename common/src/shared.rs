@@ -1,7 +1,10 @@
 use std::net::SocketAddr;
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize)]
+#[cfg(feature = "bevy")]
+pub mod fetch;
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct ConnectionResponse {
     pub server_addr: SocketAddr,
     #[serde(with = "serde_bytes")]
@@ -15,3 +18,13 @@ pub enum LobbyType {
     Private(ShortCode),
     Public(String)
 }
+
+impl LobbyType {
+    pub fn is_public(&self) -> bool {
+        match self {
+            LobbyType::Public(_) => true,
+            LobbyType::Private(_) => false,
+        }
+    }
+}
+pub const PROTOCOL_ID: u64 = 15234_u64;

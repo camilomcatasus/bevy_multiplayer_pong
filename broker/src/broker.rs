@@ -1,16 +1,17 @@
 
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use lightyear::netcode::ConnectToken;
-use log::warn;
+use axum::Json;
+use log::{info, warn};
 use tokio::process::Command;
 use tokio::sync::Mutex;
-use common::shared::ShortCode;
+use common::shared::{ConnectionResponse, ShortCode};
 
 use crate::error::Error;
-use crate::{LobbyInfo, LobbyMaps, LobbyType, CONFIG};
+use crate::{public, Config, LobbyInfo, LobbyMaps, LobbyType, CONFIG};
 
-pub async fn create_game(app_state: &AppState) -> Result<u32, Error> {
+pub async fn create_game(app_state: &AppState, private: bool) -> Result<u32, Error> {
     let port = { 
         let mut free_ports = app_state.free_ports.lock().await;
         if free_ports.is_empty() {
@@ -22,14 +23,21 @@ pub async fn create_game(app_state: &AppState) -> Result<u32, Error> {
 
     //TODO
     
-    let mut child = Command::new(&CONFIG.server_path)
+    let mut commands = Command::new(&CONFIG.server_path);
+
+    commands
         .arg("--broker-port")
         .arg(CONFIG.private_port.to_string())
         .arg("--server-port")
         .arg(port.to_string())
         .arg("--public-address")
-        .arg("127.0.0.1")
-        .spawn()?;
+        .arg("127.0.0.1");
+
+    if private {
+        commands.arg("--private");
+    }
+
+    let mut child = commands.spawn()?;
 
     if let Some(id) = child.id() {
         for _ in 0..10 {
@@ -45,8 +53,11 @@ pub async fn create_game(app_state: &AppState) -> Result<u32, Error> {
         }
     }
 
-    //TODO: Log this maybe, add it to programs that need to be killed somehow?
     let _ = child.kill().await;
+    {
+        let mut free_ports = app_state.free_ports.lock().await;
+        free_ports.push(port);
+    }
 
     Err(Error::SawnTimeOut)
 }
@@ -71,25 +82,35 @@ impl AppState {
         }
     }
 
-    #[deprecated]
-    pub async fn remove_lobby(&self, lobby_info: &LobbyInfo) {
-        let mut lobby_maps = self.lobbies.lock().await;
-        match &lobby_info.lobby_type {
-            LobbyType::Private(short_code) => {
-                lobby_maps.short_codes.remove(short_code);
-                lobby_maps.lobbies.remove(&lobby_info.id);
+    pub async fn remove_lobbies(&self, lobby_ids: &Vec<u32>) {
+        let mut freed_ports = {
+            let mut lobby_maps = self.lobbies.lock().await;
+            let mut freed_ports: Vec<u16> = Vec::new();
+            for lobby_id in lobby_ids {
+                let lobby_info_opt = lobby_maps.lobbies.remove(lobby_id);
+                if let Some(mut lobby_info) = lobby_info_opt {
+                    if let LobbyType::Private(short_code) = lobby_info.lobby_type {
+                        lobby_maps.short_codes.remove(&short_code);
+                    }
+
+                    if let Some(process) = &mut lobby_info.process {
+                        let kill_result = process.start_kill();
+                        warn!("Attempt to kill process: {:?}", kill_result);
+                    }
+                    freed_ports.push(lobby_info.port);
+                }
             }
-            LobbyType::Public(_name) => {
-                lobby_maps.lobbies.remove(&lobby_info.id);
-            }
-        }
+            freed_ports
+        };
+        let mut free_ports = self.free_ports.lock().await;
+        free_ports.append(&mut freed_ports);
     }
 
-    pub async fn get_lobby_token(&self, lobby_id: &u32) -> Result<ConnectToken, Error> {
+    pub async fn get_lobby_response(&self, lobby_id: &u32) -> Result<Json<ConnectionResponse>, Error> {
         let mut lobby_maps = self.lobbies.lock().await;
         let lobby_info = lobby_maps.lobbies.get_mut(lobby_id)
             .ok_or(Error::NotFound)?;
-        lobby_info.token()
+        lobby_info.connection_response()
     }
 
     pub async fn contains_id(&self, lobby_id: &u32) -> bool {
@@ -111,40 +132,50 @@ impl AppState {
     }
 }
 
+const LOBBY_VALID_WAIT_S: u64 = 5;
+const PUBLIC_LOBBY_HANDLER_SLEEP_S: u64 = 5;
+const VALIDATION_SLEEP_MS: u64 = 500;
 
-//TODO: Get rid of magic numbers
 pub async fn lobby_validation(app_state: AppState) {
     tokio::spawn(async move {
         loop {
             {
-                let mut lobby_maps = app_state.lobbies.lock().await;
-                let stalled_lobbies: Vec<(u32, LobbyType)> = lobby_maps.lobbies
-                    .values_mut()
-                    .filter(|lobby_info| lobby_info.last_checkin.elapsed() > Duration::from_secs(5))
-                    .map(|lobby_info| (lobby_info.id, lobby_info.lobby_type.clone()))
-                    .collect();
+                let stalled_lobbies: Vec<u32> = {
+                    let mut lobby_maps = app_state.lobbies.lock().await;
+                    lobby_maps.lobbies
+                        .values_mut()
+                        .filter(|lobby_info| lobby_info.last_checkin.elapsed() > Duration::from_secs(LOBBY_VALID_WAIT_S))
+                        .map(|lobby_info| lobby_info.id)
+                        .collect()
+                };
 
-                for stalled_lobby in stalled_lobbies {
-                    warn!("Found stalled lobby: {}", stalled_lobby.0);
-                    if let Some(lobby_instance) = lobby_maps.lobbies.get_mut(&stalled_lobby.0) {
-                        if let Some(process) = &mut lobby_instance.process {
-                            let kill_result = process.start_kill();
-                            warn!("Attempt to kill process: {:?}", kill_result);
-                        }
-                    }
+                app_state.remove_lobbies(&stalled_lobbies).await;
+            }
+            
+            tokio::time::sleep(Duration::from_millis(VALIDATION_SLEEP_MS)).await;
+        }
+    });
+}
 
-                    match &stalled_lobby.1 {
-                        LobbyType::Private(short_code) => {
-                            lobby_maps.short_codes.remove(short_code);
-                            lobby_maps.lobbies.remove(&stalled_lobby.0);
-                        }
-                        LobbyType::Public(_name) => {
-                            lobby_maps.lobbies.remove(&stalled_lobby.0);
-                        }
+pub async fn public_lobby_handler(app_state: AppState) {
+    tokio::spawn(async move {
+        loop {
+            {
+                let public_game_count = {
+                    let lobby_map = app_state.lobbies.lock().await;
+                    lobby_map.lobbies.values().filter(|lobby_info| lobby_info.lobby_type.is_public()).count()
+                };
+
+                if public_game_count < CONFIG.public_games.into() {
+                    let new_game_count:usize = (CONFIG.public_games as usize) - public_game_count; 
+                    info!("Creating {new_game_count} public lobbies");
+                    for _ in 0..new_game_count {
+                        //TODO: Logging
+                        let _ = create_game(&app_state, false).await;
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_millis(500)).await;
+            tokio::time::sleep(Duration::from_millis(PUBLIC_LOBBY_HANDLER_SLEEP_S)).await;
         }
     });
 }

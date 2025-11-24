@@ -11,7 +11,7 @@ pub async fn started_game(
     State(app_state): State<AppState>,
     Json(private_lobby_info): Json<LobbyInfo>,
 ) -> impl IntoResponse {
-    log::debug!("Private Lobby Started: {:?}", private_lobby_info);
+    log::info!("Private Lobby Started: {:?}", private_lobby_info);
     app_state.add_lobby(private_lobby_info).await;
 }
 

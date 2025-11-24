@@ -5,17 +5,18 @@ use axum::{extract::{Path, State},
     Router,
 };
 use serde::Serialize;
-use common::shared::ShortCode;
+use common::shared::{ConnectionResponse, ShortCode};
 use tower_http::trace::TraceLayer;
 
-use crate::{error::Error, AppState, LobbyType};
+use crate::{error::Error, AppState, LobbyInfo, LobbyType};
 
 
 pub fn create_router(app_state: &AppState) -> Router {
     Router::new()
         .route("/public-lobbies", get(public_lobbies))
-        .route("/create-lobby", post(create_game))
+        .route("/create-lobby", get(create_game))
         .route("/join-request/{short_code}", get(join_request))
+        .route("/quick-join", get(quick_join))
         .with_state(app_state.clone())
         .layer(TraceLayer::new_for_http())
         
@@ -28,6 +29,18 @@ pub struct LobbyDisplayInfo {
     pub player_count: u8
 }
 
+pub async fn quick_join(
+    State(app_state): State<AppState>,
+) -> Result<impl IntoResponse, Error> {
+    let mut lobby_maps = app_state.lobbies.lock().await;
+    let smallest_public_lobby: &mut LobbyInfo = lobby_maps.lobbies.values_mut()
+        .filter(|lobby_info| lobby_info.lobby_type.is_public())
+        .min_by_key(|lobby_info| lobby_info.player_count)
+        .ok_or(Error::ServerError)?;
+
+    smallest_public_lobby.connection_response()
+}
+
 pub async fn join_request(
     State(app_state): State<AppState>,
     Path(short_code): Path<ShortCode>
@@ -37,8 +50,7 @@ pub async fn join_request(
         .get(&short_code)
         .ok_or(Error::NotFound)?;
     let lobby_info = lobby_maps.lobbies.get_mut(&lobby_id).ok_or(Error::NotFound)?;
-    Ok(lobby_info.token()?
-        .try_into_bytes()?)
+    lobby_info.connection_response()
 }
 
 async fn public_lobbies(
@@ -64,8 +76,6 @@ async fn public_lobbies(
 pub async fn create_game(
     State(app_state): State<AppState>,
 ) -> Result<impl IntoResponse, Error> {
-    let lobby_id = crate::broker::create_game(&app_state).await?;
-    let token = app_state.get_lobby_token(&lobby_id).await?;
-    
-    Ok(token.try_into_bytes()?)
+    let lobby_id = crate::broker::create_game(&app_state, true).await?;
+    app_state.get_lobby_response(&lobby_id).await
 }

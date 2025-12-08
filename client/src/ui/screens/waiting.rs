@@ -6,13 +6,11 @@ use lightyear::{netcode::{ConnectToken, NetcodeClient}, prelude::{client::Netcod
 
 use crate::{
     transient::Transient, 
-    ui::comps::menu_button, 
+    ui::{comps::menu_button, screens::ConnectionTask}, 
     AppState
 };
 
 
-#[derive(Resource)]
-pub struct ConnectionTask(Task<Option<ConnectionResponse>>);
 const LOADING_TEXT: &str = "Loading";
 #[derive(Resource)]
 struct LoadingTimer(Timer);
@@ -155,7 +153,7 @@ pub(crate) fn handle_connected(
     mut commands: Commands,
 ) {
     let Ok(client_id) = query.get(trigger.entity) else {
-        info!("What");
+        error!("What");
         return;
     };
     let client_id = client_id.0;

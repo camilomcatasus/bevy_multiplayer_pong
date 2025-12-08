@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 const FIXED_TIMESTEP: f64 = 64.0;
 
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct PlayerId(PeerId);
+pub struct PlayerId {
+    id: PeerId,
+    name: String,
+}
 
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PlayerState {
@@ -79,6 +82,12 @@ pub enum GameSpeed {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ClientJoin {
+    pub name: String,
+    pub color: Color,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SettingsVoteMessage {
     pub max_score: usize,
     pub game_speed: GameSpeed,
@@ -113,6 +122,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerId>();
         app.register_component::<PlayerState>();
         app.register_component::<PlayerColor>();
+        app.register_message::<ClientJoin>().add_direction(NetworkDirection::ClientToServer);
         app.register_message::<SettingsVoteMessage>().add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ClientReadyMessage>().add_direction(NetworkDirection::ClientToServer);
         app.register_message::<GameStartMessage>().add_direction(NetworkDirection::ServerToClient);

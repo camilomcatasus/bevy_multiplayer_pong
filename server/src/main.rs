@@ -11,6 +11,8 @@ use tracing_subscriber::Layer;
 use crate::check_in::CheckInPlugin;
 
 mod check_in;
+mod lobby;
+mod player_handling;
 
 #[derive(Parser, Debug, Resource, Clone)]
 pub struct Args {
@@ -28,6 +30,13 @@ pub struct Args {
 
     #[arg(short, long, default_value_t = 20)]
     tick_duration_ms: u64
+}
+
+#[derive(Default, States, Debug, Clone, Eq, PartialEq, Hash)]
+pub(crate) enum AppState {
+    #[default]
+    Lobby,
+    Game
 }
 
 #[derive(Serialize, Debug, Resource, Clone)]
@@ -94,7 +103,10 @@ fn startup(
     commands.insert_resource(lobby_info);
 }
 
+
+
 static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
+
 
 fn custom_layer(_app: &mut App) -> Option<BoxedLayer> {
     let pid = std::process::id();
@@ -123,5 +135,6 @@ fn main() {
         ))
         .add_plugins(ProtocolPlugin)
         .add_systems(Startup, startup)
+        .init_state::<AppState>()
         .run();
 }

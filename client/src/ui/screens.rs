@@ -1,17 +1,17 @@
 
-use bevy::prelude::*;
+use bevy::{prelude::*, tasks::Task};
+use common::shared::ConnectionResponse;
 
 use crate::ui::screens::{
-    main_screen::MainScreenPlugin, 
-    waiting::WaitingScreenPlugin
+    lobby::LobbyScreenPlugin, main::MainScreenPlugin, waiting::WaitingScreenPlugin
 };
 
-
 mod lobby;
-mod main_screen;
+mod main;
 mod waiting;
 
-
+#[derive(Resource)]
+pub struct ConnectionTask(Task<Option<ConnectionResponse>>);
 
 pub struct ScreenSystem;
 
@@ -21,6 +21,7 @@ impl Plugin for ScreenSystem {
             .add_plugins((
                 MainScreenPlugin,
                 WaitingScreenPlugin,
+                LobbyScreenPlugin
             ))
             ;
     }

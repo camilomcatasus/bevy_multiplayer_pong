@@ -1,12 +1,12 @@
 use std::f32::consts::PI;
 
 use bevy::prelude::*;
+use common::protocol::{Animation, Direction, Inputs, PlayerState};
 use lightyear::prelude::Tick;
 use crate::{
     custom_models::{
         Ball, Collidable, GameEvent, GameSettings, Player
     }, 
-    protocol::{Animation, Direction, Inputs, PlayerState}
 };
 
 pub const INPUT_UP: u8 = 1 << 0;

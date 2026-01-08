@@ -1,9 +1,10 @@
 
 use std::process::Stdio;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use axum::Json;
 use log::{info, warn};
+use tokio::fs;
 use tokio::process::Command;
 use tokio::sync::Mutex;
 use common::shared::{ConnectionResponse, ShortCode};
@@ -138,17 +139,30 @@ const VALIDATION_SLEEP_MS: u64 = 500;
 
 pub async fn lobby_validation(app_state: AppState) {
     tokio::spawn(async move {
+        let mut metadata = fs::metadata(&CONFIG.server_path).await;
+        let mut server_modified: SystemTime = metadata.expect("Server should be here").modified().expect("No modified date");
         loop {
             {
+                metadata = fs::metadata(&CONFIG.server_path).await;
+                let new_server_modified = metadata.expect("Server should be here").modified().expect("No modified date");
+
                 let stalled_lobbies: Vec<u32> = {
-                    let mut lobby_maps = app_state.lobbies.lock().await;
-                    lobby_maps.lobbies
-                        .values_mut()
-                        .filter(|lobby_info| lobby_info.last_checkin.elapsed() > Duration::from_secs(LOBBY_VALID_WAIT_S))
-                        .map(|lobby_info| lobby_info.id)
-                        .collect()
+                    let lobby_maps = app_state.lobbies.lock().await;
+                    if server_modified != new_server_modified {
+                        info!("New server binary found, restarting lobbies");
+                        lobby_maps.lobbies.values().map(|lobby_info| lobby_info.id).collect()
+                    }
+                    else {
+
+                        lobby_maps.lobbies
+                            .values()
+                            .filter(|lobby_info| lobby_info.last_checkin.elapsed() > Duration::from_secs(LOBBY_VALID_WAIT_S))
+                            .map(|lobby_info| lobby_info.id)
+                            .collect()
+                    }
                 };
 
+                server_modified = new_server_modified;
                 app_state.remove_lobbies(&stalled_lobbies).await;
             }
             

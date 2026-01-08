@@ -5,12 +5,30 @@ use bevy::{ecs::entity::MapEntities, prelude::*};
 use lightyear::{core::time::TickDelta, prelude::*};
 use serde::{Deserialize, Serialize};
 
-const FIXED_TIMESTEP: f64 = 64.0;
+pub const FIXED_TIMESTEP: f64 = 64.0;
+pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
+pub struct MainChannel;
+
+
 
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PlayerId {
-    id: PeerId,
-    name: String,
+    pub id: PeerId,
+    pub name: String,
+}
+
+impl PlayerId {
+    pub fn new(name: String, id: PeerId) -> Self{
+        Self {
+            id,
+            name
+        }
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct PlayerLobbyInfo {
+    pub ready: bool,
 }
 
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -26,7 +44,7 @@ pub struct Animation {
 }
 
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct PlayerColor(Color);
+pub struct PlayerColor(pub Color);
 
 #[derive(Bundle)]
 pub struct PlayerBundle {
@@ -34,6 +52,12 @@ pub struct PlayerBundle {
     pub state: PlayerState,
     pub color: PlayerColor,
 }
+
+#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct PlayerCard(pub PeerId);
+
+#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct PlayerListDisplay;
 
 impl Ease for PlayerState {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
@@ -88,13 +112,16 @@ pub struct ClientJoin {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct ClientLeave;
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SettingsVoteMessage {
     pub max_score: usize,
     pub game_speed: GameSpeed,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct ClientReadyMessage;
+pub struct ClientReadyMessage(pub bool);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GameStartMessage{
@@ -103,9 +130,9 @@ pub struct GameStartMessage{
     pub game_speed: GameSpeed,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
 pub struct Inputs {
-    pub direction: Direction,
+    pub direction: Option<Direction>,
     pub special: Option<Special>,
 }
 
@@ -122,7 +149,13 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerId>();
         app.register_component::<PlayerState>();
         app.register_component::<PlayerColor>();
+        app.register_component::<PlayerLobbyInfo>();
+        app.add_channel::<MainChannel>(ChannelSettings { 
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()), 
+            ..Default::default()
+        }).add_direction(NetworkDirection::Bidirectional);
         app.register_message::<ClientJoin>().add_direction(NetworkDirection::ClientToServer);
+        app.register_message::<ClientLeave>().add_direction(NetworkDirection::ClientToServer);
         app.register_message::<SettingsVoteMessage>().add_direction(NetworkDirection::ClientToServer);
         app.register_message::<ClientReadyMessage>().add_direction(NetworkDirection::ClientToServer);
         app.register_message::<GameStartMessage>().add_direction(NetworkDirection::ServerToClient);

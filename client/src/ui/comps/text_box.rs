@@ -4,7 +4,14 @@ use crate::{constants::{FULL, MENU_BUTTON_HEIGHT, MENU_BUTTON_WIDTH}, observe::o
 #[derive(Component)]
 pub struct TextInput;
 
-pub fn text_box() -> impl Bundle {
+#[derive(EntityEvent)]
+#[entity_event(propagate, auto_propagate)]
+pub struct TextChanged {
+    pub entity: Entity,
+    pub text: String,
+}
+
+pub fn text_box(label: impl Component, text: String) -> impl Bundle {
     (
         Node {
             border: UiRect::all(Val::Px(2.0)),
@@ -17,7 +24,7 @@ pub fn text_box() -> impl Bundle {
         children![
             (
                 TextInput,
-                Text::new(""),
+                Text::new(text),
                 Node {
                     width: FULL,
                     height: FULL,
@@ -26,7 +33,12 @@ pub fn text_box() -> impl Bundle {
                 observe(move |trigger: On<Pointer<Click>>, mut input_focus: ResMut<InputFocus>| {
                     input_focus.set(trigger.entity);
                 }),
-                observe(move |trigger: On<FocusedInput<KeyboardInput>>, mut query: Query<&mut Text>| {
+                observe(
+                    move |
+                        trigger: On<FocusedInput<KeyboardInput>>, 
+                        mut query: Query<&mut Text>,
+                        mut commands: Commands,
+                    | {
                     let Ok(mut text) = query.get_mut(trigger.focused_entity) else {
                         return;
                     };
@@ -47,7 +59,13 @@ pub fn text_box() -> impl Bundle {
                     if key_text.is_ascii() {
                         text.0 += key_text;
                     }
-                })
+
+                    commands.trigger(TextChanged {
+                        entity: trigger.focused_entity,
+                        text: text.0.clone(),
+                    })
+                }),
+                label
             )
         ]
     )

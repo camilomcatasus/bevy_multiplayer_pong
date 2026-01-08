@@ -7,7 +7,7 @@ use crate::{
     observe::observe
 };
 pub fn menu_button<M>(
-    text: &'static str,
+    text: String,
     message: M,
 ) -> impl Bundle
 where 
@@ -27,7 +27,7 @@ where
         mixins::hover_color(PRIMARY_BUTTON.into(), HOVERED_BUTTON.into()),
         children![
             (
-                Text(text.to_string()),
+                Text(text),
                 TextColor(WHITE.into())
             )
         ],

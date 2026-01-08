@@ -1,34 +1,15 @@
-use std::time::Duration;
+use std::{net::{Ipv4Addr, SocketAddr}, time::Duration};
 
-use bevy::{input_focus::{InputDispatchPlugin, InputFocusSystems}, log::LogPlugin, prelude::*, render::{settings::{Backends, WgpuSettings}, RenderPlugin}};
-use custom_models::{GameEvent, Player};
-
-mod collision;
-mod custom_models;
-mod line_renderer;
-mod game;
-mod constants;
-mod client;
-mod bundle_fn;
-mod observe;
-mod ui;
-mod transient;
-
-use common::protocol;
-use game::spawn_ball;
+use bevy::{color::palettes::css::WHITE, input_focus::InputDispatchPlugin, prelude::*, render::{settings::{Backends, WgpuSettings}, RenderPlugin}};
+use ::client::{line_renderer, ui::comps::color_picker::ColorPickerPlugin, AppState, PlayerInfo};
+use ::client::custom_models::{GameEvent, Player};
+use lightyear::prelude::*;
+use common::protocol::ProtocolPlugin;
 use lightyear::prelude::client::ClientPlugins;
-use ui::screens::ScreenSystem;
+use ::client::ui::screens::ScreenSystem;
+use bevy::prelude::*;
+use ::client::transient::TransientPlugin;
 
-use crate::transient::TransientPlugin;
-
-#[derive(Default, States, Debug, Clone, Eq, PartialEq, Hash)]
-pub enum AppState {
-    #[default]
-    Menu,
-    Waiting,
-    Lobby,
-    Game
-}
 
 fn main() {
     let wgpu_settings = WgpuSettings {
@@ -56,12 +37,17 @@ fn main() {
         ScreenSystem,
         InputDispatchPlugin,
         TransientPlugin,
-        ClientPlugins { tick_duration: Duration::from_millis(20) }
+        ProtocolPlugin,
+        ClientPlugins { tick_duration: Duration::from_millis(100) },
+        ColorPickerPlugin,
     ))
     .init_state::<AppState>()
+    .insert_resource(PlayerInfo {
+        name: "Player".into(),
+        color: WHITE.into(),
+    })
     .add_message::<GameEvent>()
     .add_systems(Startup, setup)
-    .add_systems(Update, wait_for_players.run_if(in_state(AppState::Lobby)))
     .add_systems(Update, line_renderer::render_lines.run_if(in_state(AppState::Game)))
     .run();
 }
@@ -105,16 +91,20 @@ fn spawn_player(mut commands: Commands) {
         transform.with_translation(RIGHT * 2.)
     ));
 
-    spawn_ball(&mut commands);
-}
-
-fn wait_for_players() {
-
 }
 
 fn setup(
     mut commands: Commands,
 ) {
+    let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+    commands.spawn((
+        Client::default(),
+        LocalAddr(client_addr),
+        //PeerAddr(connection_data.server_addr),
+        Link::new(None),
+        ReplicationReceiver::default(),
+        UdpIo::default(),
+    ));
     commands.spawn((
         Camera2d,
         Projection::Orthographic(OrthographicProjection {

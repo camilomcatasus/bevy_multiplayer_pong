@@ -1,15 +1,17 @@
 use std::{fs, net::SocketAddr, str::FromStr, sync::OnceLock, time::Duration};
 use lightyear::{netcode::NetcodeServer, prelude::{server::{NetcodeConfig, ServerPlugins, ServerUdpIo, Start}, *}};
 use log::LevelFilter;
+use tracing_subscriber::{fmt::time, layer::SubscriberExt};
 use serde::Serialize;
 use common::{protocol::ProtocolPlugin, shared::{LobbyType, PROTOCOL_ID}};
-use bevy::{log::{BoxedLayer, LogPlugin}, prelude::*};
+use bevy::{log::{tracing, BoxedLayer, Level, LogPlugin}, prelude::*, state::app::StatesPlugin};
 use clap::Parser;
 use tracing_appender::{non_blocking::WorkerGuard, rolling};
 use tracing_subscriber::Layer;
 
-use crate::check_in::CheckInPlugin;
+use crate::{check_in::CheckInPlugin, lobby::LobbyPlugin, player_handling::PlayerHandlingPlugin};
 
+mod game;
 mod check_in;
 mod lobby;
 mod player_handling;
@@ -28,13 +30,14 @@ pub struct Args {
     #[arg(long)]
     private: bool,
 
-    #[arg(short, long, default_value_t = 20)]
+    #[arg(short, long, default_value_t = 100)]
     tick_duration_ms: u64
 }
 
 #[derive(Default, States, Debug, Clone, Eq, PartialEq, Hash)]
 pub(crate) enum AppState {
     #[default]
+    Starting,
     Lobby,
     Game
 }
@@ -50,11 +53,21 @@ pub struct LobbyInfo {
     pub lobby_type: LobbyType,
 }
 
+#[derive(Resource)]
+pub struct Handles {
+    pub mesh_handle: Handle<Mesh>
+}
+
 fn startup(
     mut commands: Commands,
     args: Res<Args>,
-    mut exit: MessageWriter<AppExit>
+    mut exit: MessageWriter<AppExit>,
+    mut meshes: ResMut<Assets<Mesh>>,
 ) {
+
+    commands.insert_resource(Handles {
+        mesh_handle: meshes.add(Rectangle::new(20f32, 4f32))
+    });
     let pid = std::process::id();
     let socket_addr = SocketAddr::from_str(&format!("{}:{}", args.public_address, args.server_port))
         .expect("Could not parse address");
@@ -101,6 +114,7 @@ fn startup(
         log::info!("Found broker, waiting for player");
     }
     commands.insert_resource(lobby_info);
+    commands.set_state(AppState::Lobby);
 }
 
 
@@ -122,18 +136,32 @@ fn custom_layer(_app: &mut App) -> Option<BoxedLayer> {
 
 fn main() {
     let args = Args::parse();
+    tracing_subscriber::fmt()
+        .with_ansi(true) // Enable colors
+        .with_level(true) // Show log levels
+        .with_target(true) // Show the module path (often sufficient)
+        .with_file(true) // **Enable file name**
+        .with_line_number(true) // **Enable line number**
+        .with_timer(time::uptime()) // Use uptime for timestamp
+        .compact()
+        .with_max_level(Level::INFO)
+        .init();
+
     App::new()
         .insert_resource(args.clone())
         .add_plugins((
-          MinimalPlugins,
-          ServerPlugins { tick_duration: Duration::from_millis(args.tick_duration_ms)},
-          LogPlugin {
-            custom_layer,
-            ..Default::default()
-          },
-          CheckInPlugin
+            MinimalPlugins,
+            StatesPlugin,
+            LogPlugin {
+                //custom_layer,
+                ..Default::default()
+            },
+            CheckInPlugin,
+            ProtocolPlugin, 
+            LobbyPlugin,
+            PlayerHandlingPlugin,
+            ServerPlugins { tick_duration: Duration::from_millis(args.tick_duration_ms)},
         ))
-        .add_plugins(ProtocolPlugin)
         .add_systems(Startup, startup)
         .init_state::<AppState>()
         .run();

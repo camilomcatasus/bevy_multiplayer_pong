@@ -9,10 +9,11 @@ bevy = { version = "0.17.2", features = [
   "debug",
   "async_executor",
   "multi_threaded",
-  "bevy_log"
+  "bevy_log",
+  "bevy_ui"
 ], default-features = false}
 clap = { version = "4.5.51", features = ["derive"] }
-lightyear = {version = "0.25.3", default-features = false, features = ["server", "netcode", "udp"]}
+lightyear = {version = "0.25.3", default-features = false, features = ["server", "netcode", "udp", "input_native"]}
 reqwest = { version = "0.12.24", features = ["json", "blocking"]}
 common = { path = "../common", features = ["bevy"]}
 serde = { version = "1.0.228", features = ["derive"] }

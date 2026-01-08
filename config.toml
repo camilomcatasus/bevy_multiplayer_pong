@@ -3,8 +3,8 @@ private_port = 3038
 max_games = 3 
 public_games = 2
 max_game_length_s = 300
-timeout_s = 120
-expire_s = 300
+timeout_s = 100
+expire_s = 5
 server_path = "./target/debug/server.exe"
 
 allowed_ports = [

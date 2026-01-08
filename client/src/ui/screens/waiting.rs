@@ -1,13 +1,13 @@
 use std::{net::{Ipv4Addr, SocketAddr}, time::Duration};
 
 use bevy::{color::palettes::css::WHITE, input_focus::InputFocus, prelude::*, tasks::{block_on, futures_lite::future, Task}};
-use common::shared::ConnectionResponse;
+use common::{protocol::{ClientJoin, MainChannel, PlayerListDisplay}, shared::ConnectionResponse};
 use lightyear::{netcode::{ConnectToken, NetcodeClient}, prelude::{client::NetcodeConfig, *}};
 
 use crate::{
     transient::Transient, 
     ui::{comps::menu_button, screens::ConnectionTask}, 
-    AppState
+    AppState, PlayerInfo
 };
 
 
@@ -43,7 +43,7 @@ fn enter_waiting_screen(mut commands: Commands) {
                 
             ),
             (
-                menu_button("Cancel", WaitingMessage(None))
+                menu_button("Cancel".to_string(), WaitingMessage(None))
             )
         ],
         Transient
@@ -76,23 +76,28 @@ fn waiting_text_anim(
 
         if loading_text.0.len() < LOADING_TEXT.len() + 3 {
             loading_text.0 += ".";
-        }
-        else {
+        } else {
             loading_text.0 = LOADING_TEXT.to_string();
         }
     }
 }
 
 fn waiting_handler(
+    player_list_display: Query<&PlayerListDisplay>,
     mut commands: Commands, 
     mut messages: MessageReader<WaitingMessage>,
     connection_task: ResMut<ConnectionTask>,
     waiting_state: ResMut<WaitingState>,
+    client: Single<Entity, With<Client>>,
 ) {
 
     match *waiting_state {
-        WaitingState::ConnectToken => connect_token_wait(&mut commands, connection_task, waiting_state),
-        WaitingState::Connecting => (),
+        WaitingState::ConnectToken => connect_token_wait(&mut commands, connection_task, waiting_state, *client),
+        WaitingState::Connecting => {
+            if !player_list_display.is_empty() {
+                commands.set_state(AppState::Lobby)
+            }
+        },
     }
 
     for message in messages.read() {
@@ -112,6 +117,7 @@ fn connect_token_wait(
     commands: &mut Commands,
     mut connection_task: ResMut<ConnectionTask>,
     mut waiting_state: ResMut<WaitingState>,
+    client_entity: Entity,
 ) {
     if let Some(connection_response) = block_on(future::poll_once(&mut connection_task.0)) {
         match connection_response {
@@ -123,19 +129,14 @@ fn connect_token_wait(
                     commands.set_state(AppState::Menu);
                     return;
                 };
-                let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
                 let auth = Authentication::Token(connection_token);
-                let client = commands.spawn((
-                    Client::default(),
-                    LocalAddr(client_addr),
+                commands.entity(client_entity).insert((
                     PeerAddr(connection_data.server_addr),
                     Link::new(None),
-                    ReplicationReceiver::default(),
                     NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
-                    UdpIo::default(),
-                )).id();
+                ));
 
-                commands.trigger(Connect { entity: client});
+                commands.trigger(Connect { entity: client_entity});
 
                 *waiting_state = WaitingState::Connecting;
             }
@@ -150,24 +151,20 @@ fn connect_token_wait(
 pub(crate) fn handle_connected(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<Client>>,
+    player_info: Res<PlayerInfo>,
+    mut writer: Single<(Entity, &mut MessageSender<ClientJoin>)>,
     mut commands: Commands,
 ) {
     let Ok(client_id) = query.get(trigger.entity) else {
         error!("What");
         return;
     };
-    let client_id = client_id.0;
-    /*let entity = commands
-        .spawn((
-            PlayerBundle::new(client_id, Vec2::ZERO),
-            // we replicate the Player entity to all clients that are connected to this server
-            Replicate::to_clients(NetworkTarget::All),
-        ))
-        .id();
-    */
-    info!(
-        "Connected",
-    );
+    //let client_id = client_id.0;
+
+    writer.1.send::<MainChannel>(ClientJoin {
+        name: player_info.name.clone(),
+        color: player_info.color,
+    });
 
     commands.set_state(AppState::Lobby);
 }

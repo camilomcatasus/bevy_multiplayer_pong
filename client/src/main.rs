@@ -1,7 +1,8 @@
 use std::{net::{Ipv4Addr, SocketAddr}, time::Duration};
 
 use bevy::{color::palettes::css::WHITE, input_focus::InputDispatchPlugin, prelude::*, render::{settings::{Backends, WgpuSettings}, RenderPlugin}};
-use ::client::{line_renderer, ui::comps::color_picker::ColorPickerPlugin, AppState, PlayerInfo};
+use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+use ::client::{game::GamePlugin, line_renderer, ui::comps::color_picker::ColorPickerPlugin, AppState, PlayerInfo};
 use ::client::custom_models::{GameEvent, Player};
 use lightyear::prelude::*;
 use common::protocol::ProtocolPlugin;
@@ -38,9 +39,13 @@ fn main() {
         InputDispatchPlugin,
         TransientPlugin,
         ProtocolPlugin,
-        ClientPlugins { tick_duration: Duration::from_millis(100) },
+        ClientPlugins { tick_duration: Duration::from_millis(20) },
         ColorPickerPlugin,
+        ::client::rendering::RenderPlugin,
+        GamePlugin,
     ))
+    .add_plugins(EguiPlugin::default())
+    .add_plugins(WorldInspectorPlugin::new())
     .init_state::<AppState>()
     .insert_resource(PlayerInfo {
         name: "Player".into(),

@@ -7,9 +7,9 @@ edition = "2024"
 anyhow = "1.0.100"
 async-h1 = {optional = true, version = "2.3.4"}
 async-native-tls = {optional = true, version = "0.5.0"}
-bevy = { version = "0.17.2", optional = true, features=["default_no_std", "serialize", "bevy_ui"], default-features=false }
+bevy = { version = "0.17", optional = true, features=["default_no_std", "serialize", "bevy_ui"], default-features=false }
 http-types = {optional = true, version = "2.12.0"}
-lightyear = "0.25.3"
+lightyear = { version = "0.25.5", features = ["input_native"]}
 serde = { version = "1.0.228", features = ["derive"] }
 serde_bytes = "0.11.19"
 smol = { optional = true, version = "2.0.2"}

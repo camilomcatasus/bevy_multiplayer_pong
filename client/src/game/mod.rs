@@ -1,12 +1,12 @@
 use std::f32::consts::PI;
 
-use bevy::prelude::*;
-use common::protocol::{Animation, Direction, Inputs, PlayerState};
-use lightyear::prelude::Tick;
+use bevy::{input::keyboard::Key, prelude::*};
+use common::protocol::{handle_input, Animation, Direction, Inputs, PlayerId, PlayerIndex, PlayerState};
+use lightyear::{connection::direction, input::client::InputSystems, prelude::{input::native::{ActionState, InputMarker}, Predicted, Tick}};
 use crate::{
     custom_models::{
         Ball, Collidable, GameEvent, GameSettings, Player
-    }, 
+    }, AppState, 
 };
 
 pub const INPUT_UP: u8 = 1 << 0;
@@ -17,30 +17,6 @@ pub const INPUT_ATTACK: u8 = 1 << 3;
 const PLAYER_SPEED: f64 = 0.02f64;
 const INPUT_BUFFERING_TIME: u16 = 20u16;
 
-pub fn handle_player_input(
-    mut player_state: Mut<PlayerState>,
-    input: &Inputs,
-    tick: Tick
-) {
-    match input.direction {
-        Direction::Up => player_state.position += PLAYER_SPEED,
-        Direction::Down => player_state.position -= PLAYER_SPEED,
-    }
-
-    if let Some(special) = &input.special {
-        if let Some(last_anim) = player_state.anim_buffer.last() {
-            if (last_anim.origin_tick - tick).unsigned_abs() < 
-                last_anim.anim_type.get_length_tick().to_i16().unsigned_abs().saturating_sub(INPUT_BUFFERING_TIME) {
-            }
-        }
-        else {
-            player_state.anim_buffer.push(Animation {
-                anim_type: special.clone(),
-                origin_tick: tick
-            })
-        }
-    }
-}
 
 pub fn move_ball(
     time: Res<Time>,
@@ -135,17 +111,62 @@ pub fn spawn_ball(
     ));
 }
 
-fn game_setup(
+
+pub fn player_input(
+    mut inputs: Single<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
+    key_press: Res<ButtonInput<KeyCode>>,
+) {
+    let mut direction_vector = 0;
+    if key_press.any_pressed([KeyCode::ArrowUp, KeyCode::KeyW]) {
+        direction_vector += 1;
+    }
+    if key_press.any_pressed([KeyCode::ArrowDown, KeyCode::KeyS]) {
+        direction_vector -= 1;
+    }
+
+    let direction = match direction_vector {
+        -1 => Some(Direction::Down),
+        1 => Some(Direction::Up),
+        _ => None, 
+    };
+
+    inputs.0 = Inputs {
+        direction,
+        special: None,
+    };
+}
+
+pub fn game_start(
+    my_player: Single<Entity, With<Predicted>>,
     mut commands: Commands,
 ) {
-    commands.spawn((
-        Camera2d,
-        Projection::Orthographic(OrthographicProjection {
-            scaling_mode: bevy::camera::ScalingMode::FixedVertical {
-                viewport_height: 20.,
-            },
-            ..OrthographicProjection::default_2d()
-        })
-    ));
+    commands.entity(*my_player).insert(
+        InputMarker::<Inputs>::default()
+    );
+}
 
+pub fn player_movement(
+    players: Query<&PlayerId>,
+    my_player: Single<(&PlayerIndex, &ActionState<Inputs>, &mut Transform, &mut PlayerState), With<Predicted>>
+) {
+    let (player_index, inputs, transform, player_state) = my_player.into_inner();
+    let player_count = players.iter().count();
+    handle_input(
+        player_count as f32,
+        transform, 
+        player_state,
+        player_index, 
+        inputs, 
+    );
+}
+
+pub struct GamePlugin;
+
+impl Plugin for GamePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(FixedPreUpdate, 
+            player_input.in_set(InputSystems::WriteClientInputs));
+        app.add_systems(OnEnter(AppState::Game), game_start);
+        app.add_systems(FixedUpdate, player_movement);
+    }
 }

@@ -27,10 +27,11 @@ fn client_ready_handling(
 ) {
     let mut lobby_info_map: HashMap<PeerId, _> = 
         lobby_info.iter_mut().map(|info_instance| {
-            (info_instance.0.id.clone(), info_instance.1)
+            (info_instance.0.id, info_instance.1)
         }).collect();
     for mut receiver in receivers.iter_mut() {
         for message in receiver.2.receive() {
+            info!("Received player ready message: {:?}", message.0);
             let Some(player_lobby_info) = lobby_info_map.get_mut(&receiver.1.0) else {
                 warn!("Received a ready message with no client");
                 continue;
@@ -42,7 +43,8 @@ fn client_ready_handling(
     let ready_count = lobby_info_map.values().filter(|l| l.ready).count();
     let player_count = lobby_info_map.values().count();
 
-    if ready_count == player_count {
+    if ready_count == player_count && player_count >= 2{
+        info!("Changing to state to Game");
         commands.set_state(AppState::Game);
     }
 

@@ -1,7 +1,7 @@
 public_port = 3037
 private_port = 3038
 max_games = 3 
-public_games = 2
+public_games = 1
 max_game_length_s = 300
 timeout_s = 100
 expire_s = 5

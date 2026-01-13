@@ -10,6 +10,7 @@ pub mod bundle_fn;
 pub mod observe;
 pub mod ui;
 pub mod transient;
+pub mod rendering;
 
 #[derive(Default, States, Debug, Clone, Eq, PartialEq, Hash)]
 pub enum AppState {

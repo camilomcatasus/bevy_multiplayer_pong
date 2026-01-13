@@ -1,20 +1,20 @@
-use std::{fs, net::SocketAddr, str::FromStr, sync::OnceLock, time::Duration};
+use std::{net::SocketAddr, str::FromStr, sync::OnceLock, time::Duration};
 use lightyear::{netcode::NetcodeServer, prelude::{server::{NetcodeConfig, ServerPlugins, ServerUdpIo, Start}, *}};
-use log::LevelFilter;
-use tracing_subscriber::{fmt::time, layer::SubscriberExt};
+use bevy_inspector_egui::{bevy_egui::EguiPlugin, quick::WorldInspectorPlugin};
+use tracing_subscriber::fmt::time;
 use serde::Serialize;
 use common::{protocol::ProtocolPlugin, shared::{LobbyType, PROTOCOL_ID}};
-use bevy::{log::{tracing, BoxedLayer, Level, LogPlugin}, prelude::*, state::app::StatesPlugin};
+use bevy::{log::{BoxedLayer, Level, LogPlugin}, prelude::*, state::app::StatesPlugin};
 use clap::Parser;
 use tracing_appender::{non_blocking::WorkerGuard, rolling};
 use tracing_subscriber::Layer;
 
-use crate::{check_in::CheckInPlugin, lobby::LobbyPlugin, player_handling::PlayerHandlingPlugin};
+use crate::{check_in::CheckInPlugin, game::GamePlugin, lobby::LobbyPlugin, player_handling::PlayerHandlingPlugin};
 
-mod game;
 mod check_in;
 mod lobby;
 mod player_handling;
+mod game;
 
 #[derive(Parser, Debug, Resource, Clone)]
 pub struct Args {
@@ -30,7 +30,7 @@ pub struct Args {
     #[arg(long)]
     private: bool,
 
-    #[arg(short, long, default_value_t = 100)]
+    #[arg(short, long, default_value_t = 20)]
     tick_duration_ms: u64
 }
 
@@ -53,21 +53,21 @@ pub struct LobbyInfo {
     pub lobby_type: LobbyType,
 }
 
-#[derive(Resource)]
-pub struct Handles {
-    pub mesh_handle: Handle<Mesh>
-}
-
 fn startup(
     mut commands: Commands,
     args: Res<Args>,
-    mut exit: MessageWriter<AppExit>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    mut exit: MessageWriter<AppExit>
 ) {
 
-    commands.insert_resource(Handles {
-        mesh_handle: meshes.add(Rectangle::new(20f32, 4f32))
-    });
+    commands.spawn((
+        Camera2d,
+        Projection::Orthographic(OrthographicProjection {
+            scaling_mode: bevy::camera::ScalingMode:: FixedVertical { 
+                viewport_height: 20.,
+            },
+            ..OrthographicProjection::default_2d()
+        })
+    ));
     let pid = std::process::id();
     let socket_addr = SocketAddr::from_str(&format!("{}:{}", args.public_address, args.server_port))
         .expect("Could not parse address");
@@ -122,21 +122,10 @@ fn startup(
 static LOG_GUARD: OnceLock<WorkerGuard> = OnceLock::new();
 
 
-fn custom_layer(_app: &mut App) -> Option<BoxedLayer> {
-    let pid = std::process::id();
-    let file_appender = rolling::daily("logs", format!("server_{pid}.log"));
-    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
-    let _ = LOG_GUARD.set(guard);
-    Some(bevy::log::tracing_subscriber::fmt::layer()
-            .with_writer(non_blocking)
-            .with_file(true)
-            .with_line_number(true)
-            .boxed())
-}
 
 fn main() {
     let args = Args::parse();
-    tracing_subscriber::fmt()
+    /*tracing_subscriber::fmt()
         .with_ansi(true) // Enable colors
         .with_level(true) // Show log levels
         .with_target(true) // Show the module path (often sufficient)
@@ -145,23 +134,26 @@ fn main() {
         .with_timer(time::uptime()) // Use uptime for timestamp
         .compact()
         .with_max_level(Level::INFO)
-        .init();
+        .init();*/
 
     App::new()
         .insert_resource(args.clone())
         .add_plugins((
-            MinimalPlugins,
-            StatesPlugin,
-            LogPlugin {
-                //custom_layer,
-                ..Default::default()
-            },
+            DefaultPlugins.set(
+                LogPlugin {
+                filter: "info,lightyear=debug".to_string(),
+                level: bevy::log::Level::TRACE,
+                ..default()
+            }) ,
             CheckInPlugin,
             ProtocolPlugin, 
             LobbyPlugin,
             PlayerHandlingPlugin,
             ServerPlugins { tick_duration: Duration::from_millis(args.tick_duration_ms)},
+            GamePlugin,
         ))
+        .add_plugins(EguiPlugin::default())
+        .add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, startup)
         .init_state::<AppState>()
         .run();

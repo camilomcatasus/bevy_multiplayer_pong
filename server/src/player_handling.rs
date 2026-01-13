@@ -58,11 +58,23 @@ fn on_player_join(
                 (
                     PlayerId {
                         name: message.name,
-                        id: rid.0
+                        id: rid.0,
+                        spectating: matches!(state.get(), AppState::Game),
                     },
                     PlayerColor(message.color),
                     PlayerLobbyInfo{ ready: false },
+                    PlayerState {
+                        position: 0f32,
+                        anim_buffer: Vec::new(),
+
+                    },
                     Replicate::to_clients(Target::All),
+                    PredictionTarget::to_clients(NetworkTarget::Single(rid.0)),
+                    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(rid.0)),
+                    ControlledBy {
+                        owner: entity,
+                        lifetime: Lifetime::default()
+                    }
                 )
             );
         }

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use bevy::{
     app::Plugin, color::palettes::{css::WHITE, tailwind::GRAY_300}, gizmos, prelude::*
 };
-use common::protocol::{ClientReadyMessage, MainChannel, PlayerCard, PlayerColor, PlayerId, PlayerListDisplay};
+use common::protocol::{ClientReadyMessage, GameStartMessage, MainChannel, PlayerCard, PlayerColor, PlayerId, PlayerListDisplay};
 use lightyear::prelude::*;
 
 use crate::{observe::observe, transient::Transient, ui::comps::menu_button, AppState};
@@ -191,6 +191,16 @@ pub(crate) fn player_display() -> impl Bundle {
         PlayerListDisplay,
     )
 }
+
+pub(crate) fn game_start_receiver(
+    mut commands: Commands,
+    mut reader: Single<&mut MessageReceiver<GameStartMessage>>
+) {
+    for _ in reader.receive() {
+        info!("Receiving game start");
+        commands.set_state(AppState::Game);
+    }
+}
 pub struct LobbyScreenPlugin;
 
 impl Plugin for LobbyScreenPlugin {
@@ -198,6 +208,7 @@ impl Plugin for LobbyScreenPlugin {
         app
             .add_message::<NOOP>()
             .add_systems(OnEnter(AppState::Lobby), (enter_lobby_screen, handle_lobby).chain())
+            .add_systems(Update, game_start_receiver.run_if(in_state(AppState::Lobby)))
             .add_observer(on_player_join)
             .add_observer(on_player_disconnect)
         ;

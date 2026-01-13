@@ -1,7 +1,10 @@
+use std::f32::consts::PI;
 use std::time::Duration;
 
 use bevy::app::App;
+use bevy::math::ops::{cos, sin};
 use bevy::{ecs::entity::MapEntities, prelude::*};
+use lightyear::input::native::plugin::InputPlugin;
 use lightyear::{core::time::TickDelta, prelude::*};
 use serde::{Deserialize, Serialize};
 
@@ -9,19 +12,48 @@ pub const FIXED_TIMESTEP: f64 = 64.0;
 pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
 pub struct MainChannel;
 
+#[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct PlayerIndex(pub u16);
+const RADIUS: f32 = 5f32;
 
+pub fn handle_input(
+    player_count: f32, 
+    mut transform: Mut<Transform>,
+    mut player_state: Mut<PlayerState>,
+    index: &PlayerIndex, 
+    inputs: &Inputs) {
+    let theta = f32::from(index.0) / player_count * 2.0 * PI;
+    let theta_slice = (PI * 2.0) / player_count / 2.0;
+    match inputs.direction {
+        None => (),
+        Some(Direction::Up) => {
+            player_state.position += 0.05;
+            player_state.position = player_state.position.min(1.0);
+        },
+        Some(Direction::Down) => {
+            player_state.position -= 0.05;
+            player_state.position = player_state.position.max(-1.0);
+            info!("Down Handled");
+        },
+    }
+
+    let offset_theta = theta - theta_slice * player_state.position;
+    transform.translation = vec3(cos(offset_theta) * RADIUS, sin(offset_theta) * RADIUS, 0f32);
+}
 
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PlayerId {
     pub id: PeerId,
     pub name: String,
+    pub spectating: bool,
 }
 
 impl PlayerId {
-    pub fn new(name: String, id: PeerId) -> Self{
+    pub fn new(name: String, id: PeerId, spectating: bool) -> Self{
         Self {
             id,
-            name
+            name,
+            spectating
         }
     }
 }
@@ -33,7 +65,7 @@ pub struct PlayerLobbyInfo {
 
 #[derive(Component, Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct PlayerState {
-    pub position: f64,
+    pub position: f32,
     pub anim_buffer: Vec<Animation>,
 }
 
@@ -63,20 +95,20 @@ impl Ease for PlayerState {
     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
         FunctionCurve::new(Interval::UNIT, move |t| {
             PlayerState {
-                position: f64::lerp(start.position, end.position, t.into()),
+                position: f32::lerp(start.position, end.position, t),
                 anim_buffer: end.anim_buffer.clone()
             }
         })
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Direction {
     Up,
     Down,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Special {
     Jump,
     Speed,
@@ -125,12 +157,11 @@ pub struct ClientReadyMessage(pub bool);
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct GameStartMessage{
-    pub start_tick: Tick,
     pub max_score: usize,
     pub game_speed: GameSpeed,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Default, Reflect)]
 pub struct Inputs {
     pub direction: Option<Direction>,
     pub special: Option<Special>,
@@ -146,10 +177,13 @@ pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(InputPlugin::<Inputs>::default());
         app.register_component::<PlayerId>();
         app.register_component::<PlayerState>();
         app.register_component::<PlayerColor>();
         app.register_component::<PlayerLobbyInfo>();
+        app.register_component::<PlayerIndex>();
+        app.register_component::<Transform>();
         app.add_channel::<MainChannel>(ChannelSettings { 
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()), 
             ..Default::default()

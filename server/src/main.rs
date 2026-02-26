@@ -139,12 +139,19 @@ fn main() {
     App::new()
         .insert_resource(args.clone())
         .add_plugins((
-            DefaultPlugins.set(
+            /*DefaultPlugins.set(
                 LogPlugin {
-                filter: "info,lightyear=debug".to_string(),
+                filter: "info,lightyear=debug,".to_string(),
                 level: bevy::log::Level::TRACE,
                 ..default()
-            }) ,
+            }) ,*/
+            MinimalPlugins,
+            StatesPlugin,
+            LogPlugin {
+                //custom_layer,
+                filter: "info,".to_string(),
+                ..Default::default()
+            },
             CheckInPlugin,
             ProtocolPlugin, 
             LobbyPlugin,
@@ -152,8 +159,8 @@ fn main() {
             ServerPlugins { tick_duration: Duration::from_millis(args.tick_duration_ms)},
             GamePlugin,
         ))
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::new())
+        //.add_plugins(EguiPlugin::default())
+        //.add_plugins(WorldInspectorPlugin::new())
         .add_systems(Startup, startup)
         .init_state::<AppState>()
         .run();

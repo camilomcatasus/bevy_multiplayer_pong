@@ -114,7 +114,7 @@ fn setup(
         Camera2d,
         Projection::Orthographic(OrthographicProjection {
             scaling_mode: bevy::camera::ScalingMode:: FixedVertical { 
-                viewport_height: 20.,
+                viewport_height: 40.,
             },
             ..OrthographicProjection::default_2d()
         })

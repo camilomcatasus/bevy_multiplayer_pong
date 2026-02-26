@@ -1,8 +1,8 @@
 use std::f32::consts::PI;
 
-use bevy::{input::keyboard::Key, prelude::*};
-use common::protocol::{handle_input, Animation, Direction, Inputs, PlayerId, PlayerIndex, PlayerState};
-use lightyear::{connection::direction, input::client::InputSystems, prelude::{input::native::{ActionState, InputMarker}, Predicted, Tick}};
+use bevy::prelude::*;
+use common::protocol::{handle_input, move_balls, transform_player, Direction, Inputs, PlayerIndex, PlayerState};
+use lightyear::{input::client::InputSystems, prelude::{input::native::{ActionState, InputMarker}, Predicted}};
 use crate::{
     custom_models::{
         Ball, Collidable, GameEvent, GameSettings, Player
@@ -16,7 +16,6 @@ pub const INPUT_ATTACK: u8 = 1 << 3;
 
 const PLAYER_SPEED: f64 = 0.02f64;
 const INPUT_BUFFERING_TIME: u16 = 20u16;
-
 
 pub fn move_ball(
     time: Res<Time>,
@@ -137,25 +136,30 @@ pub fn player_input(
 }
 
 pub fn game_start(
+    all_players: Query<(Entity, &PlayerState, &PlayerIndex)>,
     my_player: Single<Entity, With<Predicted>>,
     mut commands: Commands,
 ) {
+    let player_count = all_players.iter().count() as f32;
+
+    for (player_entity, player_state, player_index) in all_players {
+        let mut transform = Transform::default();
+        transform_player(&mut transform, player_state, player_index, player_count);
+        commands.entity(player_entity).insert(
+            transform
+        );
+    }
     commands.entity(*my_player).insert(
         InputMarker::<Inputs>::default()
     );
 }
 
 pub fn player_movement(
-    players: Query<&PlayerId>,
-    my_player: Single<(&PlayerIndex, &ActionState<Inputs>, &mut Transform, &mut PlayerState), With<Predicted>>
+    my_player: Single<(&ActionState<Inputs>, &mut PlayerState), With<Predicted>>
 ) {
-    let (player_index, inputs, transform, player_state) = my_player.into_inner();
-    let player_count = players.iter().count();
+    let (inputs, player_state) = my_player.into_inner();
     handle_input(
-        player_count as f32,
-        transform, 
         player_state,
-        player_index, 
         inputs, 
     );
 }
@@ -167,6 +171,6 @@ impl Plugin for GamePlugin {
         app.add_systems(FixedPreUpdate, 
             player_input.in_set(InputSystems::WriteClientInputs));
         app.add_systems(OnEnter(AppState::Game), game_start);
-        app.add_systems(FixedUpdate, player_movement);
+        app.add_systems(FixedUpdate, (player_movement).chain().run_if(in_state(AppState::Game)));
     }
 }
